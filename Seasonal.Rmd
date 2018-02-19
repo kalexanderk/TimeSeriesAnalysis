@@ -1,0 +1,357 @@
+```{r}
+library(astsa)
+library(forecast)
+library(fpp2)
+```
+```{r}
+#help(ausbeer)
+print("Total quarterly beer production in Australia (in megalitres) from 1956:Q1 to 2010:Q2. Quarterly time series of class ts.")
+class(ausbeer)
+print("Length:")
+length(ausbeer)
+#print(ausbeer)
+print("Head:")
+head(ausbeer, 8)
+print("Tail:")
+tail(ausbeer)
+print("Start:")
+start(ausbeer)
+print("End:")
+end(ausbeer)
+print("Time(the vector of times at which a time series was sampled):")
+time(ausbeer)
+print("Delta-time(the time interval between observations):")
+deltat(ausbeer)
+print("Frequency(the number of samples per unit time (1 year)):")
+frequency(ausbeer)
+print("Cycle(the positions in the cycle of each observation):")
+cycle(ausbeer)
+print("Conclusions:")
+print("it's a quarterly data from 1956.0 to 2010.25.")
+```
+```{r}
+print('Summary:')
+library(e1071)
+summary(ausbeer)
+print("Skewness:")
+skewness(ausbeer)
+print("Kurtosis:")
+kurtosis(ausbeer)
+
+```
+```{r}
+print("Проверим данные на сезонность.")
+fit <- tbats(ausbeer)
+seasonal <- !is.null(fit$seasonal)
+print(seasonal)
+```
+
+```{r}
+ggseasonplot(ausbeer)
+autoplot(ausbeer)
+```
+```{r}
+library(tseries)
+print("Augmented Dickey–Fuller Test (проверка на стационарность).")
+print("По сути проверяет на наличие unit root в авторегрессионной модели (нулевая гипотеза). Augmented DF test also removes all the structural effects (autocorrelation).")
+adf.test(ausbeer)
+print("Как видим, этот ряд нестационарный? т.е. его основные характеристики меняются во времени. Необхходимо привести к линейному виду быстро растущий тренд (log) и убрать периодичские тренды (diff).")
+```
+
+```{r}
+log_ausbeer <- log(ausbeer)
+autoplot(log_ausbeer)
+```
+```{r}
+diff_log_ausbeer <- diff(log_ausbeer, s=4)
+autoplot(diff_log_ausbeer)
+```
+```{r}
+library(tseries)
+adf.test(diff_log_ausbeer)
+```
+```{r}
+print("Как видим, временной ряд diff_log_ausbeer стационарен, т.е. его основные свойства (математическое ожидание, дисперсия, автоковариация с лагом и коэффициент автокорреляции с лагом) являются неизменным во времени.")
+```
+
+```{r}
+print("Ljung-Box Test (for examining the null hypothesis of independence in a given time series). Вместо тестирования на случайность каждого отдельного коэффициента, он проверяет отличие от нуля сразу нескольких коэффициентов автокорреляции. Выдвигаются две конкурирующие гипотезы: H_0: отсчёты временного ряда статистически независимы, H_1: отсчёты временного ряда не являются независимыми.                                                                                (обычно данное тестирование применяется к остаткам полученной модели ARIMA, а не к исходным данным)")
+Box.test(diff_log_ausbeer, lag = 1, type = "Ljung-Box")
+Box.test(diff_log_ausbeer, lag = 5, type = "Ljung-Box")
+Box.test(diff_log_ausbeer, lag = 10, type = "Ljung-Box")
+```
+```{r}
+print("По результатам теста Льюнга-Бокса можно увидеть, что гипотеза Н_0 отбрасывается, и принимается гипотеза Н_1, т.е. отсчёты временного ряда не являются независимыми.")
+```
+```{r}
+print("Начинаем работу с полученным рядом diff_log_ausbeer.")
+```
+```{r}
+print("Строим АКФ и ЧАКФ:")
+acf2(diff_log_ausbeer, max.lag = 20)
+```
+```{r}
+print("По коррелограмме убеждаемся, что данные действительно не случайны (процесс не хаотичный).Также видим по ЧАКФ, что p -- number of ordinary AR lags = 7.")
+```
+```{r}
+print("ARIMA model with p=7, d=0, q=0, P=4, D=1, Q=0, S=4:")
+data_sar <- sarima(ausbeer,7,0,0, P=4, D=1, Q=0, S=4)$fit
+```
+```{r}
+print("Исследуем АКФ и ЧАКФ для ошибок (residuals):")
+acf2(data_sar$residuals, max.lag = 20)
+```
+
+```{r}
+print("Видим, что наша ARIMA модель получилась достаточно хорошей: р-значения для теста Льюнга-Бокса достаточно большие, автокорреляционная функция не принимает больших значений, что указывает на независимость ошибок.")
+```
+```{r}
+print("Информационный критерий Акайке:")
+library(stats)
+AIC(data_sar)
+```
+```{r}
+sarima.for(ausbeer,n.ahead=8, p=7,d=0,q=0, P=4, D=1, Q=0, S=4)
+```
+```{r}
+print("Для проверки accuracy используем функцию accuracy(). Для этого берем кусочек нашего ряда, предиктим значения, и потом сравниваем с реальными (которые остались в оставшемся кусочке).")
+```
+
+```{r}
+last_part <- tail(ausbeer, 50)
+first_part <- head(ausbeer, length(ausbeer)-50)
+print(last_part)
+```
+```{r}
+first_part_forecast <- sarima.for(first_part,n.ahead=length(last_part), p=7,d=0,q=0, P=4, D=1, Q=0, S=4)
+```
+```{r}
+accuracy(first_part_forecast$pred, last_part)
+```
+```{r}
+print("MAPE - mean absolute percentage error -- 5.020462.")
+```
+
+
+#----------------------------------------------------
+
+
+```{r}
+print('AUTO ARIMA')
+```
+```{r}
+print("Building the auto.arima (Returns best ARIMA model according to either AIC, AICc or BIC value).")
+auto.arima(ausbeer)
+```
+```{r}
+sarima(ausbeer, p=1, d=1, q=2, P=0, D=1, Q=1, S=4)
+```
+```{r}
+first_part_forecast_auto <- sarima.for(first_part,n.ahead=length(last_part), p=1, d=1, q=2, P=0, D=1, Q=1, S=4)
+```
+```{r}
+accuracy(first_part_forecast_auto$pred, last_part)
+```
+
+#----------------------------------------------------
+
+```{r}
+print('TBATS')
+```
+```{r}
+print("Fits a TBATS model applied to y")
+fit_tbats <- tbats(ausbeer)
+```
+
+```{r}
+fit_tbats$AIC
+```
+```{r}
+fit_tbats_part <- tbats(first_part)
+forecast_tbats_part <- forecast(fit_tbats_part, h=length(last_part))
+```
+```{r}
+print(forecast_tbats_part$method)
+
+```
+```{r}
+accuracy(forecast_tbats_part, last_part)
+```
+
+```{r}
+plot(forecast_tbats_part)
+```
+
+
+
+
+
+
+```{r}
+
+#-------------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------------
+
+```
+
+
+
+
+
+
+
+```{r}
+print("Построим и изучим ARIMA для значений временного для каждого сезона по отдельности.")
+```
+
+
+```{r}
+print("Разбили превоначальный ряд по кварталам (1, 2, 3, 4) на 4 датасэта.")
+season_1<-c()
+season_2<-c()
+season_3<-c()
+season_4<-c()
+rownum = 0
+for (i in time(ausbeer)){
+  rownum = rownum + 1
+  ifelse(i-i%/%1==0, season_1<-c(season_1, ausbeer[rownum]), ifelse(i-i%/%1==0.25, season_2<-c(season_2,  ausbeer[rownum]), ifelse(i-i%/%1==0.5, season_3<-c(season_3, ausbeer[rownum]), ifelse(i-i%/%1==0.75, season_4<-c(season_4, ausbeer[rownum]), print("NA")))))
+}
+season_1<-ts(season_1, start=1, end=length(season_1))
+season_2<-ts(season_2, start=1, end=length(season_2))
+season_3<-ts(season_3, start=1, end=length(season_3))
+season_4<-ts(season_4, start=1, end=length(season_4))
+
+```
+```{r}
+print("season_1")
+autoplot(season_1)
+adf.test(season_1)
+Box.test(season_1, type = "Lj")
+print("season_2")
+autoplot(season_2)
+adf.test(season_2)
+Box.test(season_2, type = "Lj")
+print("season_3")
+autoplot(season_3)
+adf.test(season_3)
+Box.test(season_3, type = "Lj")
+print("season_4")
+autoplot(season_4)
+adf.test(season_4)
+Box.test(season_4, type = "Lj")
+```
+```{r}
+print("WORK WITH SEASON 1")
+```
+```{r}
+
+print("season_1")
+season_1_d_l <- diff(log(season_1), differences = 2)
+autoplot(season_1_d_l)
+adf.test(season_1_d_l)
+
+Box.test(season_1_d_l, type = "Lj")
+
+```
+```{r}
+acf2(season_1_d_l, max.lag = 20)
+```
+```{r}
+sar_data_1 <- sarima(season_1, p=6, d=2, q=0)
+print("AIC:")
+print(AIC(sar_data_1$fit))
+```
+```{r}
+acf2(sar_data_1$fit$residuals)
+```
+
+
+```{r}
+print("WORK WITH SEASON 2")
+```
+
+```{r}
+
+print("season_2")
+season_2_d_l <- diff(log(season_2), differences = 2)
+season_2_d_l_bc <- BoxCox(season_2_d_l, BoxCox.lambda(season_2_d_l))
+autoplot(season_2_d_l_bc)
+adf.test(season_2_d_l_bc)
+
+Box.test(season_2_d_l_bc, type = "Lj")
+
+```
+
+```{r}
+acf2(season_2_d_l_bc, max.lag = 20)
+```
+
+```{r}
+sar_data_2 <- sarima(season_2, p=6, d=2, q=0)
+print("AIC:")
+print(AIC(sar_data_2$fit))
+```
+
+
+```{r}
+acf2(sar_data_2$fit$residuals)
+```
+
+```{r}
+print("WORK WITH SEASON 3")
+```
+
+```{r}
+
+print("season_3")
+season_3_d_l <- diff(log(season_3), differences = 2)
+autoplot(season_3_d_l)
+adf.test(season_3_d_l)
+
+Box.test(season_3_d_l, type = "Lj")
+
+```
+
+```{r}
+acf2(season_3_d_l, max.lag = 20)
+```
+
+```{r}
+sar_data_3 <- sarima(season_3, p=6, d=2, q=0)
+print("AIC:")
+print(AIC(sar_data_3$fit))
+```
+
+
+```{r}
+acf2(sar_data_3$fit$residuals)
+```
+
+```{r}
+print("WORK WITH SEASON 4")
+```
+```{r}
+
+print("season_4")
+season_4_d_l <- diff(log(season_4), differences = 2)
+autoplot(season_4_d_l)
+adf.test(season_4_d_l)
+
+Box.test(season_4_d_l, type = "Lj")
+
+```
+```{r}
+acf2(season_4_d_l, max.lag = 20)
+```
+```{r}
+sar_data_4 <- sarima(season_4, p=3, d=2, q=0)
+print("AIC:")
+print(AIC(sar_data_4$fit))
+```
+```{r}
+acf2(sar_data_4$fit$residuals)
+```
+
+
+

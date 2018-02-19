@@ -1,0 +1,84 @@
+
+```{r}
+library(forecast)
+library("dygraphs")
+library("astsa")
+library(dynlm)
+library(moments)
+library(lmtest)
+```
+
+```{r}
+data <- read.table("ARCH_01.dat")
+data <- ts(data)
+```
+
+```{r}
+mean(data)
+sd(data)
+ar <- arima(data, c(1,0,0))
+res <- ar$residuals
+acf(res)
+sqres <- res * res
+acf(sqres)
+```
+
+```{r}
+arug1 <- arima(sqres, c(1,0,0))
+arug4 <- arima(sqres, c(4,0,0))
+```
+
+```{r}
+h1 <- ts(rep(0,length(data)-1))
+for(i in 1:length(data)-1){
+  h1[i] <- moment(data[1:i+1],2)}
+h1 <- ts(h1)
+```
+
+p=1 , q = 1
+```{r}
+acf2(h1)
+acf2(sqres)
+```
+
+```{r}
+model1 <- dynlm(ts(h1) ~ L(ts(h1), -1) + L(ts(sqres), -1))
+model1$coefficients
+```
+
+```{r}
+h2 <- ts(rep(0,length(sqres)-1))
+for(i in 1:length(sqres)-1){
+  h2[i] <- moment(sqres[1:i+1],2)}
+h2 <- ts(h2)
+acf2(h2)
+```
+
+```{r}
+model2 <- dynlm(ts(h2) ~ L(ts(h2), -1) + L(ts(sqres), -1))
+model2$coefficients
+```
+
+
+```{r}
+dygraph(data, main = "Y") 
+dygraph(res, main = "e") 
+dygraph(sqres, main = "e^2") 
+dygraph(h1, main = "h1") 
+dygraph(h2, main = "h2")
+```
+
+```{r}
+summary(model1)
+AIC(model1)
+dwtest(model1)
+anova(model1)
+```
+
+```{r}
+summary(model2)
+AIC(model2)
+dwtest(model2)
+anova(model2)
+```
+

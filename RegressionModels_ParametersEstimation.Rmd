@@ -1,0 +1,384 @@
+
+```{r}
+library(forecast)
+library(TTR)
+library(zoo)
+library(lmtest)
+library(dynlm)
+library("tseries")
+library("knitr")
+library("ggplot2")
+library("dygraphs")
+```
+
+```{r}
+rts1 <- read.table("Data/1997rts1.txt",header = FALSE, sep = "\t")
+rts2 <- read.table("Data/rts2.txt",header = FALSE, sep = "\t")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#Проміжне перетворення для визначення МА по вихідному сигналу
+y1 <- function(y,ma,q){
+    b <- rep(0,q)
+    alpha <- 2 / (q + 1)
+    s <- 0
+    for (j in 1:q){
+        s <- s + (1 - alpha)**j 
+    }
+    for (i in 1:q){
+        b[i] <- ((1 - alpha)**i)/s
+    }
+    
+    y1 <- rep(NA,length(y))
+    for (k in q:length(y)){
+        s <- 0
+        for (j in 1:q){
+            s <- s + b[j] * ma[k - j]
+        }
+        y1[k] <- y[k] - ma[k]  
+    }
+    return(y1)
+}
+```
+
+```{r}
+#Функція для визначення простого МА
+own_MA_simple <- function(vec, N){
+    data <- ts(vec)
+    length(data)
+    MA <- c()
+    for (j in N:length(data)){
+        s <- 0
+        for (i in 1:N){
+            s <- s + data[j-i+1]
+        }
+        MA[j-N+1] <- s / N
+    }
+    MA <- ts(MA)
+
+    MA <- append(rep(NA, times = N-1), MA)
+    return(MA)
+}
+```
+
+```{r}
+#Функція для визначення експонтенційного МА
+own_MA_exp <- function(vec, N){
+    data <- ts(vec)
+    #length(data)
+    alpha <- 2/(N+1)
+    W <- c()
+    s_W <- 0
+    for (i in 1:N){
+        W[i] <- (1-alpha)^i
+        s_W <- s_W + W[i]
+    }
+    MA_exp <- c()
+    for (j in N:length(data)){
+        s <- 0
+        for (i in 1:N){
+            s <- s + W[i] * data[j-i+1]
+      }
+      MA_exp[j-N+1] <- s / s_W
+    }
+    MA_exp <- ts(MA_exp)
+    MA_exp <- append(rep(NA, times = N-1), MA_exp)    
+    return(MA_exp)
+}
+```
+
+
+```{r}
+summary.data.frame(rts1)
+hist(rts1$V1)
+summary.data.frame(rts2)
+hist(rts2$V1)
+```
+
+```{r}
+ts_rts1 <- as.ts(rts1)
+ts_rts2 <- as.ts(rts2)
+#АКФ з лагом 12
+acf_rts1_12 <- acf(ts_rts1, lag.max = 12, plot = TRUE) 
+#ЧАКФ з лагом 12
+pacf_rts1_12 <- pacf(ts_rts1, lag.max = 12, plot = TRUE)
+#АКФ з лагом 12
+acf_rts2_12 <- acf(ts_rts2, lag.max = 12, plot = TRUE) 
+#ЧАКФ з лагом 12
+pacf_rts2_12 <- pacf(ts_rts2, lag.max = 12, plot = TRUE) 
+
+```
+
+```{r}
+#Linear Regression Model
+ar1_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1))
+ar1_rts1$coefficients[1]
+summary(ar1_rts1)
+#For better AIC -> 1
+AIC(ar1_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(ar1_rts1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(ar1_rts1)
+```
+```{r}
+#Linear Regression Model
+ar1_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1))
+summary(ar1_rts2)
+#For better AIC -> 1
+AIC(ar1_rts2)
+#Durbin-Watson stat (adeq)
+dwtest(ar1_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(ar1_rts2)
+```
+
+
+```{r}
+
+pacf(ar1_rts1$residuals, lag.max = 12)
+#q1 = 4
+pacf(ar1_rts2$residuals, lag.max = 12)
+#q2 = 11
+```
+
+
+
+```{r}
+#ARMA model with MA
+arma_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + SMA(ts(ar1_rts1$residuals),4) + L(SMA(ts(ar1_rts1$residuals),4),-1) + L(SMA(ts(ar1_rts1$residuals),4),-2) + L(SMA(ts(ar1_rts1$residuals),4),-3) + L(SMA(ts(ar1_rts1$residuals),4),-4))
+
+summary(arma_rts1)$coefficients
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts1)
+#For better AIC -> 1
+AIC(arma_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(arma_rts1)
+
+```
+
+
+```{r}
+#ARMA model with sMA5 for rts1
+arma_sma5_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + SMA(ts(ar1_rts1$residuals),5) + L(SMA(ts(ar1_rts1$residuals),5),-1) + L(SMA(ts(ar1_rts1$residuals),5),-2)+ L(SMA(ts(ar1_rts1$residuals),5),-3) + L(SMA(ts(ar1_rts1$residuals),5),-4))
+
+summary(arma_sma5_rts1)
+#For better AIC -> 1
+AIC(arma_sma5_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(arma_sma5_rts1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_sma5_rts1)
+```
+
+
+```{r}
+#ARMA model with sMA10 for rts1
+arma_sma10_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + SMA(ts(rts1),10) + L(SMA(ts(rts1),10),-1) + L(SMA(ts(rts1),10),-2)+ L(SMA(ts(rts1),10),-3) + L(SMA(ts(rts1),10),-4) )
+summary(arma_sma10_rts1)
+#For better AIC -> 1
+AIC(arma_sma10_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(arma_sma10_rts1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_sma10_rts1)
+```
+
+
+
+```{r}
+#ema5 for rts1
+arma_ema5_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + EMA(ts(rts1),5) + L(EMA(ts(rts1),5),-1) +L(EMA(ts(rts1),5),-2) +L(EMA(ts(rts1),5),-2) + L(EMA(ts(rts1),5),-3)+ L(EMA(ts(rts1),5),-4))
+summary(arma_ema5_rts1)
+#For better AIC -> 1
+AIC(arma_ema5_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(arma_ema5_rts1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_ema5_rts1)
+```
+
+
+```{r}
+#ema10 for rts1
+arma_ema10_rts1 <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + own_MA_exp(ts(rts1),10) )
+summary(arma_ema10_rts1)
+#For better AIC -> 1
+AIC(arma_ema10_rts1)
+#Durbin-Watson stat (adeq)
+dwtest(arma_ema10_rts1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_ema10_rts1)
+```
+
+
+```{r}
+#ARMA for rts2
+arma_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + SMA(ts(rts2),4) )
+summary(arma_rts2)
+#For better AIC -> 1
+AIC(arma_rts2)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts2)
+
+```
+
+```{r}
+#ARMA model with sMA5 for rts2
+arma_sma5_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + own_MA_simple(ts(rts2),5) )
+summary(arma_sma5_rts2)
+#For better AIC -> 1
+AIC(arma_sma5_rts2)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_sma5_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_sma5_rts2)
+```
+
+
+```{r}
+#ARMA model with sMA10 for rts2
+arma_sma10_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + own_MA_simple(ts(rts2),10) )
+summary(arma_sma10_rts2)
+#For better AIC -> 1
+AIC(arma_sma10_rts2)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_sma10_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_sma10_rts2)
+```
+
+```{r}
+#ema5 for rts2
+arma_ema5_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + own_MA_exp(ts(rts2),5) )
+summary(arma_ema5_rts2)
+#For better AIC -> 1
+AIC(arma_ema5_rts2)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_ema5_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_ema5_rts2)
+```
+
+
+```{r}
+#ema 10 for rts2
+arma_ema10_rts2 <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + own_MA_exp(ts(rts2),10) )
+summary(arma_ema10_rts2)
+#For better AIC -> 1
+AIC(arma_ema10_rts2)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_ema10_rts2)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_ema10_rts2)
+```
+
+
+```{r}
+#Застосовуємо проміжне перетворення 
+y_1 <- y1(ts(rts1),own_MA_exp(rts1,10),4)
+arma_rts1_y1 <- dynlm(ts(y_1) ~ L(ts(y_1), -1))
+summary(arma_rts1_y1)
+#For better AIC -> 1
+AIC(arma_rts1_y1)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_rts1_y1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts1_y1)
+```
+
+```{r}
+#Застосовуємо проміжне перетворення
+y_2 <- y1(ts(rts2),own_MA_exp(rts2,5),1)
+arma_rts2_y1 <- dynlm(ts(y_2) ~ L(ts(y_2), -1))
+summary(arma_rts2_y1)
+#For better AIC -> 1
+AIC(arma_rts2_y1)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_rts2_y1)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts2_y1)
+```
+
+
+```{r}
+#ema5
+arma_rts1_y <- dynlm(ts(rts1) ~ L(ts(rts1), -1) + L(ts(rts1), -2) + L(ts(rts1), -3) + L(ts(rts1), -4) + own_MA_exp(ts(rts1),5) )
+summary(arma_rts1_y)
+#For better AIC -> 1
+AIC(arma_rts1_y)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_rts1_y)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts1_y)
+```
+
+
+```{r}
+#ema10
+arma_rts2_y <- dynlm(ts(rts2) ~ L(ts(rts2), -1) + L(ts(rts2), -2) + L(ts(rts2), -3) + L(ts(rts2), -4) +L(ts(rts2), -5) + L(ts(rts2), -6)+ L(ts(rts2), -7)+ L(ts(rts2), -8)+ L(ts(rts2), -9)+ L(ts(rts2), -10)+ L(ts(rts2), -11)+ own_MA_exp(ts(rts2),10) )
+summary(arma_rts2_y)
+#For better AIC -> 1
+AIC(arma_rts2_y)
+#Durbin-Watson stat (stationarity)
+dwtest(arma_rts2_y)
+#Analysis of Variance (for investigating data by comparing the means of subsets of the data)
+anova(arma_rts2_y)
+
+```
+
+
+```{r}
+#Побудова моделі множинної регресії
+RTStl <- ts(scan("Data/RTStl.txt")) 
+RTScr <- ts(scan("Data/RTScr.txt")) 
+RTSeu <- ts(scan("Data/RTSeu.txt")) 
+RTSfn <- ts(scan("Data/RTSfn.txt")) 
+RTSin <- ts(scan("Data/RTSin.txt")) 
+RTSmm <- ts(scan("Data/RTSmm.txt")) 
+RTSog <- ts(scan("Data/RTSog.txt")) 
+rts11 <- ts(scan("Data/rts1.txt")) 
+RT = data.frame(rts11,RTStl,RTScr,RTSeu,RTSfn,RTSin,RTSmm,RTSog, row.names = c(1:length(rts11)))
+dygraph(cbind(RTStl,RTScr,RTSeu,RTSfn,RTSin,RTSmm,RTSog), main = "Interactive plot for time series data") %>% dyRangeSelector()
+dygraph(log(cbind(RTStl,RTScr,RTSeu,RTSfn,RTSin,RTSmm,RTSog)),main = "Interactive plot for log(time series data)") %>% dyRangeSelector()
+```
+
+```{r}
+RT
+cor(RT)
+model1 <- lm(data=RT)
+summary(model1)
+#Durbin-Watson stat (adeq)
+dwtest(model1)
+#For better AIC -> 1
+AIC(model1)
+```
+```{r }
+logRT <-  log(RT)
+logRT
+cor(logRT)
+model2 <- lm(data= logRT)
+summary(model2)
+#Durbin-Watson stat (adeq)
+dwtest(model2)
+#For better AIC -> 1
+AIC(model2)
+```
+
